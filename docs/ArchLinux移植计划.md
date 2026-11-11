@@ -23,14 +23,11 @@
 
 ---
 
-## 2. Windows 版功能基线（必须逐项对等）
+## 2. Windows 版功能
 
 ### 2.1 核心链路
 - 接收器（VID `524D` / PID `4C52`，MI_00 厂商接口，UsagePage `0xFF02`）上：
-  - 监听 HID 输入报告（65B = 报告ID 00 + 64B payload），识别 `9D 01 ..x8 AD` mSBC 音频帧，取 57B 帧体；
-  - mSBC 解码 → 120×i16 @16kHz（7.5ms/帧）→ 喂 ASR + 录音缓冲 + 音量电平；
-  - 下发命令帧（补零到 65B 写入）：`CMD_START_RECORD` / `CMD_STOP_RECORD`（A5 5A 07 52 03 0x FF）、`CMD_INFO_QUERY`、`CMD_BATTERY_QUERY`（9D A5 5A 05 0A 00 FF）。
-- 按键（Raw Input，仅限 524D 设备发来的）：F19(130)/F20(131)=录音键、F18(129)=翻译键（**当前实现=向前台发回车**，README/帮助未同步更新）；手势：<200ms 误触取消、双击(<0.6s)隐藏悬浮层、长按录音-松开上屏。
+  - 监听 HID 输入报告（65B = 报告ID 00 + 64B payload），识别 音频帧，取 57B 帧体；
 - 云端 ASR 双引擎（热切换）：豆包 WSS（cookie 鉴权，累计全量文本，静默 1.2s/2.5s 判尾，auth 失败码 709599054）与火山引擎 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`（X-Api-Key 头 + 4B 二进制协议头 + gzip，seq 收尾负包）。PCM s16le/16k/mono、8192B 分块。
 - 上屏：识别结果**恒写剪贴板**，再按 `output.input_mode`（默认 `unicode` 键入 / 可选 `ctrl_v` 粘贴）注入前台；悬浮层显示 Done 文案（show_final_seconds=1.2s）。
 - 录音落盘：`recordings/YYYYMMDD_HHMMSS.wav`（16k/mono/16bit）+ 同名 `.txt`。
@@ -91,7 +88,7 @@ app.rs 的状态机、命令帧常量、电池算法、finalize 流程、command
 - **写**：hidraw `write()` 缓冲首字节必须是报告号；无编号报告填 0x00 —— 与现命令帧首字节 0x00 完全一致，65B（帧 + 补零）原样写入即可。写超时用 poll + O_NONBLOCK 或独立 fd（hidraw 同一 fd 可读写）。
 - **权限（系统级，见 §6）**：`/dev/hidraw*` 默认 root 0660，需 udev 规则 `TAG+="uaccess"`（logind 授给活跃会话用户），插拔一次或 `udevadm trigger` 生效。
 - **内核侧无冲突**：接收器是 generic HID，`hid-generic` 自动绑定并出 hidraw 节点；Linux 无官方驱动，不存在"Rulink.exe 抢通道"问题。蓝牙模式（HFP/PipeWire）不在支持范围，与 Windows 版一致（仅 2.4G）。
-- **验收**：`--check` 找到设备；`hid_audio` 等价的 8s 纯监听能收到 `9D 01..AD` 音频流与按键期间的 `a5 5a 09 54 06` 电池应答；官方回归帧 `a55a0954069901ff` → 89%。
+- **验收**：`--check` 找到设备。
 
 ### F2 按键监听（rawinput.rs → evdev）【重写】
 - **枚举**：udev 枚举 `subsystem=input, subsystem-devnode=event*`，匹配父设备 `ID_VENDOR_ID=524d / ID_PRODUCT_ID=4c52`；接收器复合设备会出多个 evdev 节点（鼠标/键盘/consumer），语音键在**键盘接口**（MI_01）节点上。
@@ -188,8 +185,6 @@ app.rs 的状态机、命令帧常量、电池算法、finalize 流程、command
 
 ### F16 文档与帮助文本
 - README/使用说明/HELP_TEXT 同步：WebView2 → WebKitGTK；注册表 → XDG autostart；路径与控制台命令（evtest、groups、udevadm）；F18 行为修正为"发送回车"（修复现有文档-实现不一致）。
-
----
 
 ## 5. 显示服务器支持矩阵
 
